@@ -4,38 +4,27 @@
 <head>
   <meta charset="UTF-8">
   <title>simple Javascript WebP decoding demo, using Web-Assembly (WASM)</title>
-  <script type="text/javascript">
-    var Module = {
-      noInitialRun : true
-    };
-  </script>
+  <script src="libwebp.js"></script>
   <script type="text/javascript">
 
-'use strict';
-
-
-function init() {
-  var xhr = new XMLHttpRequest();
-  xhr.open('GET', 'libwebp.wasm', true);
-  xhr.responseType = 'arraybuffer';
-  xhr.onload = function() {
-    Module.wasmBinary = xhr.response;
-    var script = document.createElement('script');
-    script.src = "libwebp.js";
-    document.body.appendChild(script);
-  };
-  xhr.send(null);
-}
-window.onload = init;
-
-function encode(raw_data, width, height) {
-  const wpEncode = Module.cwrap('wpEncode', 'number', ['array', 'number', 'number']);
+    'use strict';
+async function encode(raw_data, width, height) {
+  const Module = await LIBWEBP();
+  const wpEncode = Module.cwrap('wpEncode', 'number', ['number', 'number', 'number', 'number', 'number', 'number']);
   const WebPFree = Module.cwrap('WebPFree', null, ['number']);
   const start = new Date();
   const encoded_data_size_ptr = Module._malloc(4);
-  const encoded_data_ptr = wpEncode(raw_data, width, height, encoded_data_size_ptr);
+  const raw_data_size = raw_data.length * raw_data.BYTES_PER_ELEMENT;
+  const raw_data_ptr = Module._malloc(raw_data_size);
+  console.log(raw_data_size);
+
+  // Copy data to Emscripten heap (directly accessed from Module.HEAPU8)
+  const dataHeap = new Uint8Array(Module.HEAPU8.buffer, raw_data_ptr, raw_data_size);
+  dataHeap.set(new Uint8Array(raw_data.buffer));
+
+  const encoded_data_ptr = wpEncode(dataHeap.byteOffset, width, height, 4, 90, encoded_data_size_ptr);
   const end = new Date();
-  const encoded_data_size = Module.getValue(encoded_data_size_ptr, 'i32');;
+  const encoded_data_size = Module.getValue(encoded_data_size_ptr, 'i32');
   const encoding_time = end - start;
   const result = 'encoding time: ' + encoding_time + ' ms.';  
 
@@ -52,12 +41,59 @@ function encode(raw_data, width, height) {
   downloadBinaryFile("test.webp", encoded_data);
 }
 
-function decode(webp_data, canvas_id) {
-  var result;
+async function rescale(image, width, height) {
+  const Module = await LIBWEBP();
+  const wpRescale = Module.cwrap('wpRescale', 'number', ['array', 'number', 'number', 'number', 'number', 'number']);
+  const WebPFree = Module.cwrap('WebPFree', null, ['number']);
+
+  const raw_data_size = image.data.length * image.data.BYTES_PER_ELEMENT;
+  const raw_data_ptr = Module._malloc(raw_data_size);
+  const raw_data_heap = new Uint8Array(Module.HEAPU8.buffer, raw_data_ptr, raw_data_size);
+  console.log(image.data.BYTES_PER_ELEMENT);
+  console.log(image.data.length);
+  console.log(image.data.buffer);
+  console.log(raw_data_heap);
+  console.log(image.data);
+  console.log(raw_data_size);
+
+  raw_data_heap.set(new Uint8Array(image.data.buffer));
+
+  const raw_rescaled_data_ptr = wpRescale(raw_data_heap.byteOffset, image.width, image.height, 4, width, height)
+  const raw_rescaled_data = new Uint8ClampedArray(Module.HEAPU8.buffer, raw_rescaled_data_ptr, width * height * 4);
+
+  return {
+    data: raw_rescaled_data, 
+    width: width, 
+    height: height
+  };
+}
+
+async function rescaleFile(filename, width, height) {
+  var xhr = new XMLHttpRequest();
+  xhr.open('GET', filename);
+  xhr.responseType = 'arraybuffer';
+  xhr.onreadystatechange = async function() {
+    if (xhr.readyState == 4 && xhr.status == 200) {
+      const webp_data = new Uint8Array(xhr.response);
+      const image = await decode(webp_data);
+      console.log('WHAT!!!', image.data.buffer);
+      const image_rescale = await rescale(image, width, height );
+      console.log(image_rescale);
+
+      writeImagePNG(image_rescale.data, image_rescale.width, image_rescale.height);
+      writeImagePNG(image.data, image.width, image.height);
+    }
+  };
+  xhr.send();
+}
+
+async function decode(webp_data) {
+  var result = "WASM module not finished loading! Please retry";
   var decoded_data = {data: new Uint8ClampedArray([]), width: -1, height: -1};
-  if (Module["asm"] != undefined) {
-    // wrapper for the function decoding a WebP into a canvas object
-    const wpDecode = Module.cwrap('wpDecode', 'number', ['array', 'number', 'number']);
+  const Module = await LIBWEBP();
+
+      // wrapper for the function decoding a WebP into a canvas object
+      const wpDecode = Module.cwrap('wpDecode', 'number', ['array', 'number', 'number']);
     const wpGetWidth = Module.cwrap('wpGetWidth', 'number', ['array', 'number']);
     const wpGetHeight = Module.cwrap('wpGetHeight', 'number', ['array', 'number']);
     const wpGetEncoderVersion = Module.cwrap('wpGetEncoderVersion', 'number', []);
@@ -77,19 +113,25 @@ function decode(webp_data, canvas_id) {
     const decoding_time = end - start;
     result = 'decoding time: ' + decoding_time + ' ms.';    
     decoded_data = {
-      data: new Uint8ClampedArray(Module.HEAPU8.buffer, decoded_data_ptr, width * height * 4), 
+      data: Uint8ClampedArray.from(new Uint8ClampedArray(Module.HEAPU8.buffer, decoded_data_ptr, width * height * 4)), 
       width: width, 
       height: height
     };
     Module._free(decoded_data_ptr);
-  } else {
-    result = "WASM module not finished loading! Please retry";
-  }
+  
   // display timing result
   var speed_result = document.getElementById('timing');
   if (speed_result != null) {
     speed_result.innerHTML = '<p>'+ result + '</p>';
   }
+  console.log(decoded_data);
+  console.log(decoded_data.data.buffer);
+  console.log( width * height * 4);
+
+  const a = new Uint8ClampedArray([1, 2, 3, 4, 5, 6]);
+  console.log( a);
+  console.log( a.buffer);
+  
   return decoded_data;
 }
 
@@ -148,21 +190,21 @@ const writeImagePNG = (data, width, height) => {
   downloadBinaryFile("decoded_image.png", data_byte_string);
 };
 
-function encodeGradient() {
-  const width = 1024;
-  const height = 1024;
+async function encodeGradient() {
+  const width = 2048;
+  const height = 2048;
   const raw_data = loadImageGradientData(width, height);
-  const encoded_data = encode(raw_data, width, height);
+  const encoded_data = await encode(raw_data, width, height);
 }
 
-function decodeFile(filename) {
+async function decodeFile(filename) {
   var xhr = new XMLHttpRequest();
   xhr.open('GET', filename);
   xhr.responseType = 'arraybuffer';
-  xhr.onreadystatechange = function() {
+  xhr.onreadystatechange = async function() {
     if (xhr.readyState == 4 && xhr.status == 200) {
       const webp_data = new Uint8Array(xhr.response);
-      const image = decode(webp_data);
+      const image = await decode(webp_data);
       writeImagePNG(image.data, image.width, image.height);
     }
   };
@@ -187,6 +229,10 @@ function decodeFile(filename) {
   <p id="image_webp">
     <input type="button" value="WebP Encode"
            onclick="encodeGradient()">
+  </p>
+  <p id="image_webp">
+    <input type="button" value="WebP Rescale"
+           onclick="rescaleFile('./1.webp', 100, 100)">
   </p>
   </body>
 </html>
