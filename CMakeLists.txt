@@ -13,7 +13,7 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/libwebp ${CMAKE_CURRENT_SOURCE_DIR}
 project(libwebp)
 
 set(
-  LIBWEP_EXPORTED_FUNCTIONS "_WebPFree,_WebPMalloc,_wpRescale,_wpEncode,_wpGetEncoderVersion,_wpDecode,_wpGetDecoderVersion,_wpGetHeight,_wpGetWidth,_malloc,_free" 
+  LIBWEP_EXPORTED_FUNCTIONS "_WebPFree,_WebPMalloc,_wpGetEncoderVersion,_wpGetDecoderVersion,_malloc,_free" 
 )
 
 add_executable(libwebp src/webp_wrapper.cpp)
@@ -24,6 +24,7 @@ target_compile_definitions(libwebp PUBLIC EMSCRIPTEN)
 set_target_properties(
     libwebp
     PROPERTIES LINK_FLAGS "-sWASM=1 \
+       --bind \
        -sTOTAL_MEMORY=1024MB \
        -sEXPORTED_FUNCTIONS=${LIBWEP_EXPORTED_FUNCTIONS} -sINVOKE_RUN=0 \
        -sMODULARIZE=1 -sEXPORT_NAME=LIBWEBP \

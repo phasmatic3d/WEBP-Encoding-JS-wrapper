@@ -8,61 +8,18 @@
   <script type="text/javascript">
 
     'use strict';
+
 async function encode(raw_data, width, height) {
   const Module = await LIBWEBP();
-  const wpEncode = Module.cwrap('wpEncode', 'number', ['number', 'number', 'number', 'number', 'number', 'number']);
-  const WebPFree = Module.cwrap('WebPFree', null, ['number']);
-  const start = new Date();
-  const encoded_data_size_ptr = Module._malloc(4);
-  const raw_data_size = raw_data.length * raw_data.BYTES_PER_ELEMENT;
-  const raw_data_ptr = Module._malloc(raw_data_size);
-  console.log(raw_data_size);
-
-  // Copy data to Emscripten heap (directly accessed from Module.HEAPU8)
-  const dataHeap = new Uint8Array(Module.HEAPU8.buffer, raw_data_ptr, raw_data_size);
-  dataHeap.set(new Uint8Array(raw_data.buffer));
-
-  const encoded_data_ptr = wpEncode(dataHeap.byteOffset, width, height, 4, 90, encoded_data_size_ptr);
-  const end = new Date();
-  const encoded_data_size = Module.getValue(encoded_data_size_ptr, 'i32');
-  const encoding_time = end - start;
-  const result = 'encoding time: ' + encoding_time + ' ms.';  
-
-  const encoded_data = new Uint8ClampedArray(Module.HEAPU8.buffer, encoded_data_ptr, encoded_data_size);
-
-  Module._free(encoded_data_size_ptr);
-  WebPFree(encoded_data_ptr);
-
-  var speed_result = document.getElementById('timing');
-  if (speed_result != null) {
-    speed_result.innerHTML = '<p>'+ result + '</p>';
-  }
-
-  downloadBinaryFile("test.webp", encoded_data);
+  const encoded_data = Module.encode(raw_data, width, height, 4, 90);
+  return encoded_data;
 }
 
 async function rescale(image, width, height) {
   const Module = await LIBWEBP();
-  const wpRescale = Module.cwrap('wpRescale', 'number', ['array', 'number', 'number', 'number', 'number', 'number']);
-  const WebPFree = Module.cwrap('WebPFree', null, ['number']);
-
-  const raw_data_size = image.data.length * image.data.BYTES_PER_ELEMENT;
-  const raw_data_ptr = Module._malloc(raw_data_size);
-  const raw_data_heap = new Uint8Array(Module.HEAPU8.buffer, raw_data_ptr, raw_data_size);
-  console.log(image.data.BYTES_PER_ELEMENT);
-  console.log(image.data.length);
-  console.log(image.data.buffer);
-  console.log(raw_data_heap);
-  console.log(image.data);
-  console.log(raw_data_size);
-
-  raw_data_heap.set(new Uint8Array(image.data.buffer));
-
-  const raw_rescaled_data_ptr = wpRescale(raw_data_heap.byteOffset, image.width, image.height, 4, width, height)
-  const raw_rescaled_data = new Uint8ClampedArray(Module.HEAPU8.buffer, raw_rescaled_data_ptr, width * height * 4);
-
+  const result = Module.rescale(image.data, image.width, image.height, 4, width, height);
   return {
-    data: raw_rescaled_data, 
+    data: Uint8ClampedArray.from(result),
     width: width, 
     height: height
   };
@@ -88,51 +45,14 @@ async function rescaleFile(filename, width, height) {
 }
 
 async function decode(webp_data) {
-  var result = "WASM module not finished loading! Please retry";
-  var decoded_data = {data: new Uint8ClampedArray([]), width: -1, height: -1};
   const Module = await LIBWEBP();
+  const texture = new Module.webpTexture(webp_data);
 
-      // wrapper for the function decoding a WebP into a canvas object
-      const wpDecode = Module.cwrap('wpDecode', 'number', ['array', 'number', 'number']);
-    const wpGetWidth = Module.cwrap('wpGetWidth', 'number', ['array', 'number']);
-    const wpGetHeight = Module.cwrap('wpGetHeight', 'number', ['array', 'number']);
-    const wpGetEncoderVersion = Module.cwrap('wpGetEncoderVersion', 'number', []);
-    const wpGetDecoderVersion = Module.cwrap('wpGetDecoderVersion', 'number', []);
-    const width = wpGetWidth(webp_data, webp_data.length);
-    const height = wpGetHeight(webp_data, webp_data.length);  
-    const enc_v = wpGetEncoderVersion();  
-    const dec_v = wpGetDecoderVersion();  
-
-    console.log("Dimensions", width, height);
-    console.log("Libreary Versions", enc_v, dec_v);
-
-    const decoded_data_ptr = Module._malloc(width * height * 4);
-    const start = new Date();
-    const dec_res = wpDecode(webp_data, webp_data.length, decoded_data_ptr);
-    const end = new Date();
-    const decoding_time = end - start;
-    result = 'decoding time: ' + decoding_time + ' ms.';    
-    decoded_data = {
-      data: Uint8ClampedArray.from(new Uint8ClampedArray(Module.HEAPU8.buffer, decoded_data_ptr, width * height * 4)), 
-      width: width, 
-      height: height
-    };
-    Module._free(decoded_data_ptr);
-  
-  // display timing result
-  var speed_result = document.getElementById('timing');
-  if (speed_result != null) {
-    speed_result.innerHTML = '<p>'+ result + '</p>';
-  }
-  console.log(decoded_data);
-  console.log(decoded_data.data.buffer);
-  console.log( width * height * 4);
-
-  const a = new Uint8ClampedArray([1, 2, 3, 4, 5, 6]);
-  console.log( a);
-  console.log( a.buffer);
-  
-  return decoded_data;
+  return {
+    data: Uint8ClampedArray.from(texture.data),
+    width: texture.width, 
+    height: texture.height
+  };
 }
 
 function base64( buffer ) {
@@ -195,6 +115,7 @@ async function encodeGradient() {
   const height = 2048;
   const raw_data = loadImageGradientData(width, height);
   const encoded_data = await encode(raw_data, width, height);
+  downloadBinaryFile("decoded_image.webp", encoded_data);
 }
 
 async function decodeFile(filename) {
