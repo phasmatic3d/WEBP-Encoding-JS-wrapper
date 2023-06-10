@@ -1,6 +1,6 @@
-# ppc-webp
+# WEBP-Encoding-JS-wrapper
 
-- git clone https://github.com/phasmatic3d/ppc-webp.git
+- git clone https://github.com/phasmatic3d/WEBP-Encoding-JS-wrapper.git
 - git submodule update  --init --recursive
 - emsdk activate latest
 - emsdk_env.bat
